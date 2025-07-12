@@ -195,16 +195,14 @@ export default {
       this.fetchLots();
     },
     formatISTDateTime(date) {
-      const istOffset = 5.5 * 60 * 60 * 1000;
-      const istDate = new Date(date.getTime() + istOffset);
-
       const pad = (n) => (n < 10 ? '0' + n : n);
-      const day = pad(istDate.getDate());
-      const month = pad(istDate.getMonth() + 1);
-      const year = istDate.getFullYear();
 
-      let hours = istDate.getHours();
-      const minutes = pad(istDate.getMinutes());
+      const day = pad(date.getDate());
+      const month = pad(date.getMonth() + 1);
+      const year = date.getFullYear();
+
+      let hours = date.getHours();
+      const minutes = pad(date.getMinutes());
       const ampm = hours >= 12 ? 'PM' : 'AM';
       hours = hours % 12;
       hours = hours ? hours : 12;
