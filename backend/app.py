@@ -13,7 +13,7 @@ IST = pytz.timezone('Asia/Kolkata')
 
 # --- Flask App Setup ---
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///parking.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = "C:\Users\Ishita Tayal\Desktop\parking.db"
 app.config['SECRET_KEY'] = 'secret-key'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
