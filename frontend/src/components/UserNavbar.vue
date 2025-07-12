@@ -38,6 +38,12 @@
               Edit Profile
             </router-link>
           </li>
+          <li class="nav-item ms-2">
+            <button class="btn btn-pink fw-medium rounded-pill px-3" @click="downloadCSV">
+              <i class="bi bi-download me-1"></i>
+              Export Reservations
+            </button>
+          </li>
         </ul>
       </div>
     </div>
@@ -52,13 +58,24 @@ export default {
   methods: {
     async handleLogout() {
       try {
-        await axios.post('/logout', {}, { withCredentials: true }); // backend logout
+        await axios.post('/logout', {}, { withCredentials: true });
       } catch (err) {
         console.error("Logout failed", err);
       } finally {
         localStorage.removeItem('userId');
         localStorage.removeItem('role');
         this.$router.push('/user-login');
+      }
+    },
+    async downloadCSV() {
+      try {
+        const res = await axios.post('http://localhost:5000/api/export-csv', {}, { withCredentials: true });
+        alert("CSV export started. You'll be notified once it's ready.");
+        console.log("Task ID:", res.data.task_id);  
+      } catch (err) {
+        console.error("CSV export failed", err);
+        // alert("Failed to start export. Please try again.");
+        alert(err);
       }
     },
   },
@@ -100,4 +117,17 @@ export default {
   color: white;
   border-color: #d63384;
 }
+
+.btn-pink {
+  background-color: #d63384;
+  color: white;
+  border-radius: 10px;
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.btn-pink:hover {
+  background-color: #c2186a;
+  box-shadow: 0 4px 12px rgba(214, 51, 132, 0.2);
+}
+
 </style>

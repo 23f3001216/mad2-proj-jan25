@@ -1,29 +1,20 @@
-from flask import Flask, Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify
+from flask_app import create_app
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from flask_login import LoginManager, login_user, logout_user, login_required, current_user
+from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from models import db, Admin, User, ParkingLot, ParkingSpot, Reservation
 import pytz
 from math import ceil
+from celery_app import celery
+from tasks import export_user_reservations, send_daily_reminders, send_monthly_report
 
 
 IST = pytz.timezone('Asia/Kolkata')
 
-# --- Flask App Setup ---
-app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = r"sqlite:///C:\Users\Ishita Tayal\Desktop\parking.db"
-app.config['SECRET_KEY'] = 'secret-key'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# CORS Setup (allows cookies to be sent)
-CORS(app, supports_credentials=True, origins=["http://localhost:5173"])
-
-# Init DB and Login Manager
-db.init_app(app)
-login_manager = LoginManager()
-login_manager.init_app(app)
+app, login_manager = create_app()
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -459,7 +450,21 @@ def update_user_profile():
     db.session.commit()
     return jsonify({"message": "Profile updated"}), 200
 
+@auth_bp.route("/api/export-csv", methods=["POST"])
+@login_required
+def export_csv():
+    task = export_user_reservations.delay(current_user.id)
+    return jsonify({"message": "CSV export started", "task_id": task.id}), 202
 
+@auth_bp.route("/api/run-daily-reminder", methods=["GET"])
+def run_daily_reminder():
+    send_daily_reminders.delay()
+    return jsonify({"message": "Daily reminder triggered"}), 200
+
+@auth_bp.route("/api/run-monthly-report", methods=["GET"])
+def run_monthly_report():
+    send_monthly_report.delay()
+    return jsonify({"message": "Monthly report triggered"}), 200
 
 # Register Blueprint
 app.register_blueprint(auth_bp)
