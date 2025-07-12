@@ -13,7 +13,7 @@ IST = pytz.timezone('Asia/Kolkata')
 
 # --- Flask App Setup ---
 app = Flask(__name__)
-app.config['SQLALCHEMY_DATABASE_URI'] = "C:\Users\Ishita Tayal\Desktop\parking.db"
+app.config['SQLALCHEMY_DATABASE_URI'] = r"sqlite:///C:\Users\Ishita Tayal\Desktop\parking.db"
 app.config['SECRET_KEY'] = 'secret-key'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
@@ -25,21 +25,21 @@ db.init_app(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-# User loader (works for both Admin and User)
-@login_manager.user_loader
 @login_manager.user_loader
 def load_user(user_id):
-    user = User.query.get(int(user_id))
-    if user:
-        user._role = 'user'  # custom attribute
-        return user
+    if user_id.startswith("user-"):
+        user = User.query.get(int(user_id.split("-")[1]))
+        if user:
+            user._role = "user"
+            return user
 
-    admin = Admin.query.get(int(user_id))
-    if admin:
-        admin._role = 'admin'
-        return admin
+    elif user_id.startswith("admin-"):
+        admin = Admin.query.get(int(user_id.split("-")[1]))
+        if admin:
+            admin._role = "admin"
+            return admin
 
-
+    return None
 
 # --- Root Route ---
 @app.route('/')
@@ -121,6 +121,23 @@ def login_admin():
 def logout():
     logout_user()
     return jsonify({"message": "Logged out successfully"}), 200
+
+@auth_bp.route('/api/admin/profile', methods=['PUT'])
+@login_required
+def update_admin_profile():
+    if not isinstance(current_user, Admin):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.get_json()
+    new_password = data.get("new_password", "").strip()
+
+    if new_password:
+        from werkzeug.security import generate_password_hash
+        current_user.password = generate_password_hash(new_password)
+        db.session.commit()
+        return jsonify({"message": "Password updated"}), 200
+    else:
+        return jsonify({"error": "Password is required"}), 400
 
 # --- Get all parking lots ---
 @auth_bp.route('/api/parking-lots', methods=['GET'])
@@ -429,9 +446,15 @@ def update_user_profile():
         return jsonify({"error": "Unauthorized"}), 403
 
     data = request.get_json()
+
     current_user.full_name = data.get("full_name", current_user.full_name)
     current_user.address = data.get("address", current_user.address)
     current_user.pincode = data.get("pincode", current_user.pincode)
+
+    new_password = data.get("new_password", "").strip()
+    if new_password:
+        from werkzeug.security import generate_password_hash
+        current_user.password = generate_password_hash(new_password)
 
     db.session.commit()
     return jsonify({"message": "Profile updated"}), 200

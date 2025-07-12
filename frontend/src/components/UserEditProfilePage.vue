@@ -19,6 +19,11 @@
           <input type="text" v-model="form.pincode" class="form-control" required />
         </div>
 
+        <div class="mb-3">
+          <label class="form-label">New Password (optional)</label>
+          <input type="password" v-model="form.new_password" class="form-control" placeholder="Leave blank to keep current password" />
+        </div>
+
         <div class="text-center">
           <button type="submit" class="btn btn-outline-pink">Save Changes</button>
         </div>
@@ -41,6 +46,7 @@ export default {
         full_name: "",
         address: "",
         pincode: "",
+        new_password: "", // optional password field
       },
       success: false,
       error: "",
@@ -53,20 +59,25 @@ export default {
     async fetchProfile() {
       try {
         const res = await axios.get("/api/user/profile", { withCredentials: true });
-        this.form = {
-          full_name: res.data.full_name,
-          address: res.data.address,
-          pincode: res.data.pincode,
-        };
+        this.form.full_name = res.data.full_name;
+        this.form.address = res.data.address;
+        this.form.pincode = res.data.pincode;
       } catch (err) {
         this.error = "Failed to load profile";
       }
     },
     async updateProfile() {
       try {
-        await axios.put("/api/user/profile", this.form, { withCredentials: true });
+        const payload = { ...this.form };
+        if (!payload.new_password.trim()) {
+          delete payload.new_password; // remove empty password from payload
+        }
+
+        await axios.put("/api/user/profile", payload, { withCredentials: true });
+
         this.success = true;
         this.error = "";
+        this.form.new_password = ""; // clear the password field
       } catch (err) {
         this.error = "Failed to update profile";
         this.success = false;

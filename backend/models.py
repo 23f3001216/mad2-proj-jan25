@@ -8,6 +8,9 @@ class Admin(db.Model, UserMixin):
     username = db.Column(db.String(80), unique=True)
     password = db.Column(db.String(200))
 
+    def get_id(self):
+        return f"admin-{self.id}"
+    
 class User(db.Model, UserMixin):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(150), unique=True, nullable=False)
@@ -16,6 +19,9 @@ class User(db.Model, UserMixin):
     pincode = db.Column(db.String(10))
     password = db.Column(db.String(150), nullable=False)
 
+    def get_id(self):
+        return f"user-{self.id}"
+    
 class ParkingLot(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100))

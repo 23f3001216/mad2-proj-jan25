@@ -16,6 +16,7 @@ import AdminHomePage from '@/components/AdminHomePage.vue';
 import AdminUsersPage from '@/components/AdminUsersPage.vue';
 import AdminSearchPage from '@/components/AdminSearchPage.vue';
 import AdminSummaryPage from '@/components/AdminSummaryPage.vue';
+import AdminEditProfilePage from '@/components/AdminEditProfilePage.vue'
 
 // Layout
 import UserLayout from '@/layouts/UserLayout.vue';
@@ -100,6 +101,11 @@ const routes = [
                 path: 'summary',
                 name: 'AdminSummary',
                 component: AdminSummaryPage,
+            },
+            {
+                path: 'edit-profile',
+                name: 'AdminEditProfile',
+                component: AdminEditProfilePage,
             },
         ],
     },

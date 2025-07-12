@@ -36,21 +36,35 @@
             <a class="nav-link fw-medium text-dark" href="#" @click.prevent="handleLogout">Logout</a>
           </li>
         </ul>
-
-
+        <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+          <li class="nav-item">
+            <router-link to="/admin/edit-profile" class="nav-link btn btn-outline-pink fw-medium rounded-pill px-3" active-class="active-outline-btn">
+              <i class="bi bi-pencil-square me-1"></i>
+              Edit Profile
+            </router-link>
+          </li>
+        </ul>
       </div>
     </div>
   </nav>
 </template>
 
 <script>
+import axios from "@/axios";
+
 export default {
   name: 'AdminNavbar',
   methods: {
-    handleLogout() {
-      localStorage.removeItem('userId');
-      localStorage.removeItem('role');
-      this.$router.push('/admin-login');
+    async handleLogout() {
+      try {
+        await axios.post('/logout', {}, { withCredentials: true });
+      } catch (err) {
+        console.error('Logout failed:', err);
+      } finally {
+        localStorage.removeItem('userId');
+        localStorage.removeItem('role');
+        this.$router.push('/admin-login');
+      }
     },
   },
 };

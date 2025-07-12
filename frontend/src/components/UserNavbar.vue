@@ -45,13 +45,21 @@
 </template>
 
 <script>
+import axios from "@/axios";
+
 export default {
   name: 'UserNavbar',
   methods: {
-    handleLogout() {
-      localStorage.removeItem('userId');
-      localStorage.removeItem('role');
-      this.$router.push('/user-login');
+    async handleLogout() {
+      try {
+        await axios.post('/logout', {}, { withCredentials: true }); // backend logout
+      } catch (err) {
+        console.error("Logout failed", err);
+      } finally {
+        localStorage.removeItem('userId');
+        localStorage.removeItem('role');
+        this.$router.push('/user-login');
+      }
     },
   },
 };
