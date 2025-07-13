@@ -269,6 +269,23 @@ def login_admin():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@auth_bp.route('/api/admin/profile', methods=['PUT'])
+@login_required
+def update_admin_profile():
+    if not isinstance(current_user, Admin):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.get_json()
+    new_password = data.get("new_password", "").strip()
+
+    if new_password:
+        from werkzeug.security import generate_password_hash
+        current_user.password = generate_password_hash(new_password)
+        db.session.commit()
+        return jsonify({"message": "Password updated"}), 200
+    else:
+        return jsonify({"error": "Password is required"}), 400
 
 @auth_bp.route('/api/parking-lots', methods=['GET'])
 @cache.cached()
