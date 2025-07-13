@@ -26,8 +26,8 @@ def start_scheduler(app):
             except Exception as e:
                 print("Monthly Report API failed:", e)
 
-    scheduler.add_job(call_daily_reminder, 'cron', hour=18, minute=59)
-    scheduler.add_job(call_monthly_report, 'cron', day=13, hour=18, minute=59)
+    scheduler.add_job(call_daily_reminder, 'cron', hour=8, minute=30)
+    scheduler.add_job(call_monthly_report, 'cron', day=1, hour=0, minute=0)
 
     scheduler.start()
     print("Scheduler started.")
