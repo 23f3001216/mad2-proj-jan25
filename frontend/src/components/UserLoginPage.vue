@@ -101,14 +101,14 @@ export default {
   methods: {
     async handleLogin() {
       try {
-        const res = await axios.post('http://localhost:5000/user-login', {
+        const res = await axios.post('/user-login', {
           email: this.email,
           password: this.password
         }, { withCredentials: true });
 
         localStorage.setItem('userId', res.data.id);
         localStorage.setItem('role', res.data.role);
-        this.$router.push('/user/home'); // <- update if your user dashboard route is different
+        this.$router.push('/user/home');
       } catch (err) {
         this.error = err.response?.data?.error || 'Login failed. Please try again.';
       }

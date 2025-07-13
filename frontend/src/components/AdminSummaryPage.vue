@@ -79,7 +79,6 @@ export default {
       axios.get('/api/admin/summary').then((res) => {
         const data = res.data;
 
-        // Replace whole objects to ensure reactivity
         this.revenueChartData = {
           labels: data.revenue.map(p => p.name),
           datasets: [{

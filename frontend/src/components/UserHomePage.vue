@@ -92,7 +92,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Total Cost</label>
-          <input type="text" class="form-control" :value="releaseData.totalCost || '₹60'" disabled />
+          <input type="text" class="form-control" :value="releaseData.computedCost" disabled />
         </div>
         <div class="text-center mt-3">
           <button class="btn btn-pink me-2" @click="confirmRelease">Release</button>
@@ -158,7 +158,29 @@ export default {
       this.reservations = res.data;
     },
     openReleaseModal(entry) {
-      this.releaseData = entry;
+      const parseCustomDate = (str) => {
+        const [datePart, timePart, meridian] = str.split(' ');
+        const [day, month, year] = datePart.split('-').map(Number);
+        const [hourRaw, minute] = timePart.split(':').map(Number);
+
+        let hour = hourRaw;
+        if (meridian === 'PM' && hour !== 12) hour += 12;
+        if (meridian === 'AM' && hour === 12) hour = 0;
+
+        return new Date(year, month - 1, day, hour, minute);
+      };
+
+
+      const parkedAt = parseCustomDate(entry.parkingTime);
+      const releasingAt = new Date();
+      const durationHours = Math.ceil((releasingAt - parkedAt) / (1000 * 60 * 60));
+      const cost = `₹${(durationHours * entry.lotRate).toFixed(2)}`;
+
+      this.releaseData = {
+        ...entry,
+        releasingTime: this.formatISTDateTime(releasingAt),
+        computedCost: cost,
+      };
       this.showReleaseModal = true;
     },
     closeReleaseModal() {

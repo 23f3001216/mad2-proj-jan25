@@ -33,7 +33,7 @@ class ParkingLot(db.Model):
 
 class ParkingSpot(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    status = db.Column(db.String(1), default='A')  # A = Available, O = Occupied
+    status = db.Column(db.String(1), default='A')
     lot_id = db.Column(db.Integer, db.ForeignKey('parking_lot.id'))
     reservations = db.relationship('Reservation', backref='spot', cascade="all, delete-orphan")
 

@@ -108,7 +108,6 @@ from calendar import monthrange
 def send_monthly_report():
     with app.app_context():
         today = datetime.now()
-        # Get first and last day of previous month
         first_day_this_month = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         last_day_prev_month = first_day_this_month - timedelta(seconds=1)
         first_day_prev_month = last_day_prev_month.replace(day=1)
@@ -116,7 +115,6 @@ def send_monthly_report():
         users = User.query.all()
 
         for user in users:
-            # Filter for last month's reservations only
             reservations = Reservation.query.filter(
                 Reservation.user_id == user.id,
                 Reservation.parked_at >= first_day_prev_month,
@@ -124,9 +122,8 @@ def send_monthly_report():
             ).all()
 
             if not reservations:
-                continue  # Skip if no reservations last month
+                continue  
 
-            # Calculate usage and totals
             lot_count = {}
             total_spent = 0
             for r in reservations:
@@ -136,7 +133,6 @@ def send_monthly_report():
 
             most_used = max(lot_count, key=lot_count.get) if lot_count else "N/A"
 
-            # Pink-themed email body
             html_body = f"""
             <html>
             <body style="font-family:Arial, sans-serif; background-color:#fff5f7; padding:20px;">

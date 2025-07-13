@@ -122,25 +122,22 @@ const router = createRouter({
     routes,
 });
 
-// --- GLOBAL ROUTE GUARD ---
 router.beforeEach((to, from, next) => {
     const isLoggedIn = !!localStorage.getItem('role');
-    const role = localStorage.getItem('role'); // 'user' or 'admin'
+    const role = localStorage.getItem('role');
 
     if (to.meta.requiresAuth) {
         if (!isLoggedIn) {
-            // Not logged in, redirect based on the expected role
             if (to.meta.role === 'admin') return next('/admin-login');
-            return next('/user-login'); // default to user login
+            return next('/user-login');
         }
 
-        // Logged in, but trying to access a route not meant for their role
         if (to.meta.role && to.meta.role !== role) {
             return next('/');
         }
     }
 
-    next(); // allow navigation
+    next();
 });
 
 

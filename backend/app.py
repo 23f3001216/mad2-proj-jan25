@@ -1,21 +1,36 @@
 from flask import Blueprint, request, jsonify
 from flask_app import create_app
-from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy
 from flask_login import login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime
 from models import db, Admin, User, ParkingLot, ParkingSpot, Reservation
 import pytz
 from math import ceil
-from celery_app import celery
 from tasks import export_user_reservations, send_daily_reminders, send_monthly_report
+import logging
+from flask_caching import Cache
 
-
-IST = pytz.timezone('Asia/Kolkata')
-
+#====APP SETUP====
 app, login_manager = create_app()
 
+#====LOGGER SETUP====
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+#====REDIS CACHE CONFIG====
+cache = Cache(config={
+    'CACHE_TYPE': 'RedisCache',
+    'CACHE_REDIS_HOST': 'localhost',
+    'CACHE_REDIS_PORT': 6379,
+    'CACHE_DEFAULT_TIMEOUT': 60  
+})
+
+cache.init_app(app)
+
+#====FIX TIMEZONE====
+IST = pytz.timezone('Asia/Kolkata')
+
+#====USER LOADER AND RELATED====
 @login_manager.user_loader
 def load_user(user_id):
     if user_id.startswith("user-"):
@@ -32,14 +47,6 @@ def load_user(user_id):
 
     return None
 
-# --- Root Route ---
-@app.route('/')
-def index():
-    return {"status": "Backend is running"}
-
-# --- Auth Blueprint ---
-auth_bp = Blueprint('auth', __name__)
-
 @app.route("/whoami")
 @login_required
 def whoami():
@@ -49,7 +56,15 @@ def whoami():
         "name": getattr(current_user, 'full_name', 'Admin')
     })
 
-# ------------------ User Register ------------------
+#====ROOT ROUTE====
+@app.route('/')
+def index():
+    return {"status": "Backend is running"}
+
+#====AUTH SETUP====
+auth_bp = Blueprint('auth', __name__)
+
+#====USER ROUTES====
 @auth_bp.route('/register', methods=['POST'])
 def register_user():
     try:
@@ -76,7 +91,6 @@ def register_user():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ------------------ User Login ------------------
 @auth_bp.route('/user-login', methods=['POST'])
 def login_user_route():
     try:
@@ -90,8 +104,158 @@ def login_user_route():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+@auth_bp.route('/api/user/lots')
+@login_required
+def get_lots():
+    query = request.args.get('search', '').lower()
+    lots = ParkingLot.query.filter(ParkingLot.address.ilike(f"%{query}%")).all()
+    result = []
+    for lot in lots:
+        result.append({
+            'id': lot.id,
+            'address': lot.address,
+            'spots': [{'id': s.id, 'status': s.status} for s in lot.spots],
+        })
+    return jsonify(result)
 
-# ------------------ Admin Login ------------------
+@auth_bp.route('/api/user/book', methods=['POST'])
+@login_required
+def book_spot():
+    data = request.get_json()
+    lot_id = data.get('lotId')
+    vehicle_no = data.get('vehicleNo')
+
+    if not lot_id or not vehicle_no:
+        return jsonify({'error': 'Missing lot ID or vehicle number'}), 400
+
+    lot = ParkingLot.query.get(lot_id)
+    if not lot:
+        return jsonify({'error': 'Invalid parking lot'}), 404
+
+    spot = next((s for s in lot.spots if s.status == 'A'), None)
+    if not spot:
+        return jsonify({'error': 'No available spots'}), 400
+
+    spot.status = 'O'
+    reservation = Reservation(
+        user_id=current_user.id,
+        spot_id=spot.id,
+        parked_at=datetime.now(IST),
+        left_at=None,
+        cost=0.0,
+        vehicle_number=vehicle_no
+    )
+    db.session.add(reservation)
+    db.session.commit()
+
+    return jsonify({'message': 'Reservation successful'})
+
+@auth_bp.route('/api/user/release', methods=['POST'])
+@login_required
+def release_spot():
+    res_id = request.json['id']
+    reservation = Reservation.query.get(res_id)
+
+    if not reservation or reservation.user_id != current_user.id:
+        return jsonify({'error': 'Invalid reservation'}), 404
+
+    now = datetime.now(IST)
+
+    parked_at = reservation.parked_at
+    if parked_at.tzinfo is None:
+        parked_at = IST.localize(parked_at)
+
+    left_at = now
+    reservation.left_at = left_at
+
+    duration = left_at - parked_at
+    duration_hours = ceil(duration.total_seconds() / 3600)
+
+    reservation.cost = duration_hours * reservation.spot.lot.price_per_hour
+    reservation.spot.status = 'A'
+    db.session.commit()
+
+    return jsonify({'message': 'Spot released'})
+
+@auth_bp.route('/api/user/reservations')
+@login_required
+def user_history():
+    res = Reservation.query.filter_by(user_id=current_user.id).all()
+    data = []
+    for r in res:
+        lot = r.spot.lot
+        parked_at = r.parked_at
+        left_at = r.left_at
+
+        total_cost = ''
+        if left_at:
+            duration_seconds = (left_at - parked_at).total_seconds()
+            duration_hours = ceil(duration_seconds / 3600)
+            total_cost = f"₹{duration_hours * lot.price_per_hour:.2f}"
+
+        data.append({
+            'id': r.id,
+            'location': lot.address,
+            'vehicleNo': r.vehicle_number,
+            'timestamp': parked_at.strftime("%d-%m-%Y %I:%M %p"),
+            'status': 'O' if r.left_at is None else 'A',
+            'parkingTime': parked_at.strftime("%d-%m-%Y %I:%M %p"),
+            'releasingTime': left_at.strftime("%d-%m-%Y %I:%M %p") if left_at else '',
+            'spotId': r.spot.id,
+            'totalCost': total_cost,
+            'lotRate': lot.price_per_hour
+        })
+
+    return jsonify(data)
+
+@auth_bp.route("/api/user/summary")
+@login_required
+def get_user_chart_summary():
+    if not hasattr(current_user, 'reservations'):
+        return jsonify({"error": "Unauthorized access"}), 403
+
+    completed = sum(1 for r in current_user.reservations if r.left_at is not None)
+    ongoing = sum(1 for r in current_user.reservations if r.left_at is None)
+
+    return jsonify({
+        "active": ongoing,
+        "completed": completed
+    }), 200
+
+@auth_bp.route('/api/user/profile', methods=['GET'])
+@login_required
+def get_user_profile():
+    if not isinstance(current_user, User):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    return jsonify({
+        "full_name": current_user.full_name,
+        "address": current_user.address,
+        "pincode": current_user.pincode
+    }), 200
+
+@auth_bp.route('/api/user/profile', methods=['PUT'])
+@login_required
+def update_user_profile():
+    if not isinstance(current_user, User):
+        return jsonify({"error": "Unauthorized"}), 403
+
+    data = request.get_json()
+
+    current_user.full_name = data.get("full_name", current_user.full_name)
+    current_user.address = data.get("address", current_user.address)
+    current_user.pincode = data.get("pincode", current_user.pincode)
+
+    new_password = data.get("new_password", "").strip()
+    if new_password:
+        from werkzeug.security import generate_password_hash
+        current_user.password = generate_password_hash(new_password)
+
+    db.session.commit()
+    return jsonify({"message": "Profile updated"}), 200
+
+#====ADMIN ROUTES====
 @auth_bp.route('/admin-login', methods=['POST'])
 def login_admin():
     try:
@@ -106,33 +270,10 @@ def login_admin():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# ------------------ Logout ------------------
-@auth_bp.route('/logout', methods=['POST'])
-@login_required
-def logout():
-    logout_user()
-    return jsonify({"message": "Logged out successfully"}), 200
-
-@auth_bp.route('/api/admin/profile', methods=['PUT'])
-@login_required
-def update_admin_profile():
-    if not isinstance(current_user, Admin):
-        return jsonify({"error": "Unauthorized"}), 403
-
-    data = request.get_json()
-    new_password = data.get("new_password", "").strip()
-
-    if new_password:
-        from werkzeug.security import generate_password_hash
-        current_user.password = generate_password_hash(new_password)
-        db.session.commit()
-        return jsonify({"message": "Password updated"}), 200
-    else:
-        return jsonify({"error": "Password is required"}), 400
-
-# --- Get all parking lots ---
 @auth_bp.route('/api/parking-lots', methods=['GET'])
+@cache.cached()
 def get_parking_lots():
+    logger.info("Cache MISS: /api/parking-lots accessed")
     lots = ParkingLot.query.all()
     return jsonify([{
         "id": lot.id,
@@ -144,7 +285,6 @@ def get_parking_lots():
         "spots": [{"id": spot.id, "status": spot.status} for spot in lot.spots]
     } for lot in lots])
 
-# --- Create a new parking lot ---
 @auth_bp.route('/api/parking-lots', methods=['POST'])
 def create_parking_lot():
     data = request.get_json()
@@ -165,7 +305,6 @@ def create_parking_lot():
     db.session.commit()
     return jsonify({"message": "Parking lot created successfully"}), 201
 
-# --- Update parking lot ---
 @auth_bp.route('/api/parking-lots/<int:lot_id>', methods=['PUT'])
 def update_parking_lot(lot_id):
     data = request.get_json()
@@ -179,7 +318,6 @@ def update_parking_lot(lot_id):
 
     return jsonify({"message": "Parking lot updated successfully"})
 
-# --- Delete parking lot (only if all spots are empty) ---
 @auth_bp.route('/api/parking-lots/<int:lot_id>', methods=['DELETE'])
 def delete_parking_lot(lot_id):
     lot = ParkingLot.query.get_or_404(lot_id)
@@ -192,9 +330,10 @@ def delete_parking_lot(lot_id):
     db.session.commit()
     return jsonify({"message": "Parking lot deleted successfully"})
 
-# --- Get all users ---
 @auth_bp.route('/api/users', methods=['GET'])
+@cache.cached()
 def get_all_users():
+    logger.info("Cache MISS: /api/users accessed")
     users = User.query.all()
     return jsonify([
         {
@@ -207,7 +346,9 @@ def get_all_users():
     ])
 
 @auth_bp.route('/api/admin/summary', methods=['GET'])
+@cache.cached()
 def get_admin_summary():
+    logger.info("Cache MISS: /api/admin/summary accessed")
     lots = ParkingLot.query.all()
     revenue_summary = []
     total_available = total_occupied = 0
@@ -280,7 +421,6 @@ def search_parking():
         return jsonify({'type': 'parking_lots', 'data': data})
 
     elif search_by == 'user':
-        # Search by ID or name (partial case-insensitive match)
         if search_text.isdigit():
             users = User.query.filter(User.id == int(search_text)).all()
         else:
@@ -300,156 +440,14 @@ def search_parking():
 
     return jsonify({'type': '', 'data': []})
 
-@auth_bp.route('/api/user/lots')
+#====LOGOUT ROUTE====
+@auth_bp.route('/logout', methods=['POST'])
 @login_required
-def get_lots():
-    query = request.args.get('search', '').lower()
-    lots = ParkingLot.query.filter(ParkingLot.address.ilike(f"%{query}%")).all()
-    result = []
-    for lot in lots:
-        result.append({
-            'id': lot.id,
-            'address': lot.address,
-            'spots': [{'id': s.id, 'status': s.status} for s in lot.spots],
-        })
-    return jsonify(result)
+def logout():
+    logout_user()
+    return jsonify({"message": "Logged out successfully"}), 200
 
-
-@auth_bp.route('/api/user/book', methods=['POST'])
-@login_required
-def book_spot():
-    data = request.get_json()
-    lot_id = data.get('lotId')
-    vehicle_no = data.get('vehicleNo')
-
-    if not lot_id or not vehicle_no:
-        return jsonify({'error': 'Missing lot ID or vehicle number'}), 400
-
-    lot = ParkingLot.query.get(lot_id)
-    if not lot:
-        return jsonify({'error': 'Invalid parking lot'}), 404
-
-    # Find the first available spot
-    spot = next((s for s in lot.spots if s.status == 'A'), None)
-    if not spot:
-        return jsonify({'error': 'No available spots'}), 400
-
-    # Update spot status and create reservation
-    spot.status = 'O'
-    reservation = Reservation(
-        user_id=current_user.id,
-        spot_id=spot.id,
-        parked_at=datetime.now(IST),
-        left_at=None,
-        cost=0.0,
-        vehicle_number=vehicle_no
-    )
-    db.session.add(reservation)
-    db.session.commit()
-
-    return jsonify({'message': 'Reservation successful'})
-
-
-@auth_bp.route('/api/user/release', methods=['POST'])
-@login_required
-def release_spot():
-    res_id = request.json['id']
-    reservation = Reservation.query.get(res_id)
-
-    if not reservation or reservation.user_id != current_user.id:
-        return jsonify({'error': 'Invalid reservation'}), 404
-
-    now = datetime.now(IST)
-
-    # Convert both to timezone-aware consistently
-    parked_at = reservation.parked_at
-    if parked_at.tzinfo is None:
-        parked_at = IST.localize(parked_at)
-
-    left_at = now
-    reservation.left_at = left_at
-
-    # Calculate duration in hours (ceil to next hour)
-    duration = left_at - parked_at
-    duration_hours = ceil(duration.total_seconds() / 3600)
-
-    # Set cost and free the spot
-    reservation.cost = duration_hours * reservation.spot.lot.price_per_hour
-    reservation.spot.status = 'A'
-    db.session.commit()
-
-    return jsonify({'message': 'Spot released'})
-
-
-@auth_bp.route('/api/user/reservations')
-@login_required
-def user_history():
-    res = Reservation.query.filter_by(user_id=current_user.id).all()
-    data = []
-    for r in res:
-        data.append({
-            'id': r.id,
-            'location': r.spot.lot.address,
-            'vehicleNo': r.vehicle_number,
-            'timestamp': r.parked_at.strftime("%d-%m-%Y %I:%M %p"),
-            'status': 'O' if r.left_at is None else 'R',
-            'parkingTime': r.parked_at.strftime("%d-%m-%Y %I:%M %p"),
-            'releasingTime': r.left_at.strftime("%d-%m-%Y %I:%M %p") if r.left_at else '',
-            'totalCost': f"₹{r.cost:.2f}" if r.left_at else '',
-            'spotId': r.spot.id,
-        })
-
-    return jsonify(data)
-
-@auth_bp.route("/api/user/summary")
-@login_required
-def get_user_chart_summary():
-    # Ensure the current user is actually a User (not Admin)
-    if not hasattr(current_user, 'reservations'):
-        return jsonify({"error": "Unauthorized access"}), 403
-
-    completed = sum(1 for r in current_user.reservations if r.left_at is not None)
-    ongoing = sum(1 for r in current_user.reservations if r.left_at is None)
-
-    return jsonify({
-        "active": ongoing,
-        "completed": completed
-    }), 200
-
-# --- Get user profile ---
-@auth_bp.route('/api/user/profile', methods=['GET'])
-@login_required
-def get_user_profile():
-    if not isinstance(current_user, User):
-        return jsonify({"error": "Unauthorized"}), 403
-
-    return jsonify({
-        "full_name": current_user.full_name,
-        "address": current_user.address,
-        "pincode": current_user.pincode
-    }), 200
-
-# --- Update user profile ---
-@auth_bp.route('/api/user/profile', methods=['PUT'])
-@login_required
-def update_user_profile():
-    if not isinstance(current_user, User):
-        return jsonify({"error": "Unauthorized"}), 403
-
-    data = request.get_json()
-
-    current_user.full_name = data.get("full_name", current_user.full_name)
-    current_user.address = data.get("address", current_user.address)
-    current_user.pincode = data.get("pincode", current_user.pincode)
-
-    new_password = data.get("new_password", "").strip()
-    if new_password:
-        from werkzeug.security import generate_password_hash
-        current_user.password = generate_password_hash(new_password)
-
-    db.session.commit()
-    return jsonify({"message": "Profile updated"}), 200
-
+#====CELERY RELATED ROUTES====
 @auth_bp.route("/api/export-csv", methods=["POST"])
 @login_required
 def export_csv():
@@ -466,10 +464,10 @@ def run_monthly_report():
     send_monthly_report.delay()
     return jsonify({"message": "Monthly report triggered"}), 200
 
-# Register Blueprint
+#====REGISTER BLUEPRINT====
 app.register_blueprint(auth_bp)
 
-# ------------------ DB Init & Seed Admin ------------------
+#====DB INITIALISATION AND ADMIN INITIALISATION
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()

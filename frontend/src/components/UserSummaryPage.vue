@@ -79,7 +79,6 @@ export default {
       try {
         const res = await axios.get('/api/user/summary', { withCredentials: true });
 
-        // Match backend keys
         this.completed = res.data.completed;
         this.active = res.data.active;
 

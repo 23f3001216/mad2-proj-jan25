@@ -46,7 +46,7 @@ export default {
         full_name: "",
         address: "",
         pincode: "",
-        new_password: "", // optional password field
+        new_password: "", 
       },
       success: false,
       error: "",
@@ -70,14 +70,14 @@ export default {
       try {
         const payload = { ...this.form };
         if (!payload.new_password.trim()) {
-          delete payload.new_password; // remove empty password from payload
+          delete payload.new_password;
         }
 
         await axios.put("/api/user/profile", payload, { withCredentials: true });
 
         this.success = true;
         this.error = "";
-        this.form.new_password = ""; // clear the password field
+        this.form.new_password = "";
       } catch (err) {
         this.error = "Failed to update profile";
         this.success = false;

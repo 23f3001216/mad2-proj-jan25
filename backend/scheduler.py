@@ -1,7 +1,7 @@
 import requests
 from apscheduler.schedulers.background import BackgroundScheduler
 
-scheduler_started = False  # Global flag
+scheduler_started = False
 
 def start_scheduler(app):
     global scheduler_started
@@ -26,8 +26,8 @@ def start_scheduler(app):
             except Exception as e:
                 print("Monthly Report API failed:", e)
 
-    scheduler.add_job(call_daily_reminder, 'cron', hour=2, minute=28)
-    scheduler.add_job(call_monthly_report, 'cron', day=13, hour=2, minute=28)
+    scheduler.add_job(call_daily_reminder, 'cron', hour=18, minute=59)
+    scheduler.add_job(call_monthly_report, 'cron', day=13, hour=18, minute=59)
 
     scheduler.start()
     print("Scheduler started.")

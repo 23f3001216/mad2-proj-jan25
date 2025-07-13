@@ -69,13 +69,12 @@ export default {
     },
     async downloadCSV() {
       try {
-        const res = await axios.post('http://localhost:5000/api/export-csv', {}, { withCredentials: true });
-        alert("CSV export started. You'll be notified once it's ready.");
+        const res = await axios.post('/api/export-csv', {}, { withCredentials: true });
+        alert("CSV export started.");
         console.log("Task ID:", res.data.task_id);  
       } catch (err) {
         console.error("CSV export failed", err);
-        // alert("Failed to start export. Please try again.");
-        alert(err);
+        alert("Failed to start export. Please try again.");
       }
     },
   },
